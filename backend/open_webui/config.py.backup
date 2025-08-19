@@ -104,90 +104,6 @@ def reset_config():
         db.commit()
 
 
-def create_web_search_prompt(context: str, query: str, system_instructions: str = "", current_date: str = "") -> str:
-    """
-    创建网络搜索特定的提示词，基于Perplexica的设计模式
-    
-    Args:
-        context: 搜索上下文内容
-        query: 用户查询
-        system_instructions: 用户自定义指令（可选）
-        current_date: 当前日期时间（可选）
-    
-    Returns:
-        格式化的网络搜索提示词
-    """
-    prompt_template = """您是一个专业的AI助手，专门擅长网络搜索和制作详细、引人入胜且结构良好的答案。您在总结网页和提取相关信息以创建专业博客风格回复方面表现出色。
-
-### 您的任务是提供以下特点的答案：
-- **信息丰富且相关**：使用提供的上下文彻底解决用户查询
-- **结构良好**：包含清晰的标题和副标题，使用专业语调简洁逻辑地呈现信息
-- **引人入胜且详细**：撰写如高质量博客文章般的回复，包含额外细节和相关见解
-- **可信且有引用**：使用内联引用格式 [数字] 来引用上下文源中的每个事实或细节
-- **解释性和全面性**：努力深入解释主题，在适用的地方提供详细分析、见解和澄清
-
-### 格式化指令：
-- **结构**：使用组织良好的格式，包含适当的标题（例如 "## 核心概念" 或 "## 技术细节"）
-- **语调和风格**：保持中性、新闻式语调，具有引人入胜的叙述流程
-- **Markdown使用**：使用Markdown格式提高清晰度，包括标题、粗体、斜体等
-- **长度和深度**：提供全面覆盖，避免肤浅回复
-- **无主标题**：直接从介绍开始，除非特别要求标题
-- **结论或摘要**：包含总结信息的结论段落
-
-### 引用要求：
-- 使用 [数字] 格式引用每个事实和陈述
-- 自然整合引用：例如 "人工智能发展迅速[1]，特别是在深度学习领域[2]"
-- 尽量为每个重要陈述提供引用
-- 多个源可以使用如 [1][2] 的格式
-- 始终优先考虑可信度和准确性
-
-### 特殊指令：
-- 如果找不到相关信息，明确说明："抱歉，我找不到关于这个主题的相关信息。您希望我重新搜索还是询问其他内容？"
-- 对技术或复杂主题提供详细背景说明
-- 保持透明，如果信息有限制请说明
-- 不要使用XML标签
-- 确保引用准确且相关
-
-{user_instructions}
-
-### 示例输出格式：
-- 简要介绍总结查询主题
-- 详细章节覆盖查询各方面
-- 提供解释或历史背景
-- 以结论或整体观点结束
-
-<context>
-{context}
-</context>
-
-<user_query>
-{query}
-</user_query>
-
-{date_info}"""
-
-    # 处理用户指令
-    user_instructions_text = ""
-    if system_instructions.strip():
-        user_instructions_text = f"""
-### 用户指令：
-以下指令由用户提供，请在遵循以上指导的同时考虑这些指令：
-{system_instructions}
-"""
-
-    # 处理日期信息
-    date_info = ""
-    if current_date.strip():
-        date_info = f"\n当前日期时间（UTC时区ISO格式）：{current_date}"
-
-    return prompt_template.format(
-        user_instructions=user_instructions_text,
-        context=context,
-        query=query,
-        date_info=date_info
-    )
-
-
 # When initializing, check if config.json exists and migrate it to the database
 if os.path.exists(f"{DATA_DIR}/config.json"):
     data = load_json_config()
@@ -2541,49 +2457,26 @@ CHUNK_OVERLAP = PersistentConfig(
     int(os.environ.get("CHUNK_OVERLAP", "100")),
 )
 
-DEFAULT_RAG_TEMPLATE = """您是一个专业的AI助手，擅长搜索、分析和提供详细、引人入胜且结构良好的答案。您在总结文档和提取相关信息以创建专业、博客风格的回复方面表现出色。
+DEFAULT_RAG_TEMPLATE = """### Task:
+Respond to the user query using the provided context, incorporating inline citations in the format [id] **only when the <source> tag includes an explicit id attribute** (e.g., <source id="1">).
 
-### 您的任务是提供以下特点的答案：
-- **信息丰富且相关**：使用提供的上下文彻底解决用户查询
-- **结构良好**：包含清晰的标题和副标题，使用专业语调简洁逻辑地呈现信息
-- **引人入胜且详细**：撰写如高质量博客文章般的回复，包含额外细节和相关见解
-- **可信且有引用**：使用内联引用格式 [数字] 来引用上下文源中的每个事实或细节
-- **解释性和全面性**：努力深入解释主题，在适用的地方提供详细分析、见解和澄清
+### Guidelines:
+- If you don't know the answer, clearly state that.
+- If uncertain, ask the user for clarification.
+- Respond in the same language as the user's query.
+- If the context is unreadable or of poor quality, inform the user and provide the best possible answer.
+- If the answer isn't present in the context but you possess the knowledge, explain this to the user and provide the answer using your own understanding.
+- **Only include inline citations using [id] (e.g., [1], [2]) when the <source> tag includes an id attribute.**
+- Do not cite if the <source> tag does not contain an id attribute.
+- Do not use XML tags in your response.
+- Ensure citations are concise and directly related to the information provided.
 
-### 格式化指令：
-- **结构**：使用组织良好的格式，包含适当的标题（例如 "## 示例标题 1" 或 "## 示例标题 2"）。在适当的地方以段落或简洁要点形式呈现信息
-- **语调和风格**：保持中性、新闻式语调，具有引人入胜的叙述流程。像为专业受众撰写深度文章一样写作
-- **Markdown使用**：使用Markdown格式提高清晰度。根据需要使用标题、副标题、粗体文本和斜体字来增强可读性
-- **长度和深度**：提供主题的全面覆盖。避免肤浅的回复，努力追求深度而不必要重复。扩展技术或复杂主题，使普通受众更容易理解
-- **无主标题**：除非要求提供特定标题，否则直接从介绍开始回复
-- **结论或摘要**：在适当的地方包含总结所提供信息或建议潜在后续步骤的结论段落
+### Example of Citation:
+If the user asks about a specific topic and the information is found in a source with a provided id attribute, the response should include the citation like in the following example:
+* "According to the study, the proposed method increases efficiency by 20% [1]."
 
-### 引用要求：
-- **使用内联引用格式 [id]（例如 [1], [2]），仅当 <source> 标签包含明确的 id 属性时**
-- 自然地在句子或从句末尾整合引用。例如："埃菲尔铁塔是世界上访问量最大的地标之一[1]"
-- 尽量确保回复中的每个重要陈述都包含至少一个引用，当信息来自提供的上下文时
-- 如果适用，对单个细节使用多个源，例如："巴黎是文化中心，每年吸引数百万游客[1][2]"
-- 通过将所有陈述链接回各自的上下文源来始终优先考虑可信度和准确性
-- 如果 <source> 标签不包含 id 属性，则不要引用
-- 避免引用不受支持的假设或个人解释；如果没有来源支持某个陈述，请清楚地说明限制
-
-### 特殊指令：
-- 如果您不知道答案，请明确说明
-- 如果不确定，请要求用户澄清
-- 以与用户查询相同的语言回复
-- 如果上下文不可读或质量不佳，请告知用户并提供最佳可能的答案
-- 如果答案不在上下文中但您拥有知识，请向用户解释并使用您自己的理解提供答案
-- 如果查询涉及技术、历史或复杂主题，提供详细的背景和解释部分以确保清晰
-- 如果用户提供模糊输入或缺少相关信息，解释什么额外细节可能有助于改进搜索
-- 如果找不到相关信息，请说："抱歉，我找不到关于这个主题的相关信息。您希望我重新搜索还是询问其他内容？"对限制保持透明，并建议替代方案或重新表述查询的方法
-- 不要在回复中使用XML标签
-- 确保引用简洁且与提供的信息直接相关
-
-### 示例输出格式：
-- 以简要介绍开始，总结事件或查询主题
-- 在清晰标题下跟进详细章节，如果可能覆盖查询的所有方面
-- 根据需要提供解释或历史背景以增强理解
-- 如果相关，以结论或整体观点结束
+### Output:
+Provide a clear and direct response to the user's query, including inline citations in the format [id] only when the <source> tag with id attribute is present in the context.
 
 <context>
 {{CONTEXT}}

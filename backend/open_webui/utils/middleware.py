@@ -66,6 +66,7 @@ from open_webui.utils.task import (
     rag_template,
     tools_function_calling_generation_template,
 )
+from open_webui.config import create_web_search_prompt
 from open_webui.utils.misc import (
     deep_update,
     get_message_list,
@@ -995,22 +996,59 @@ async def process_chat_payload(request, form_data, user, metadata, model):
                     f"With a 0 relevancy threshold for RAG, the context cannot be empty"
                 )
         else:
-            # Workaround for Ollama 2.0+ system prompt issue
-            # TODO: replace with add_or_update_system_message
-            if model.get("owned_by") == "ollama":
-                form_data["messages"] = prepend_to_first_user_message_content(
-                    rag_template(
-                        request.app.state.config.RAG_TEMPLATE, context_string, prompt
-                    ),
-                    form_data["messages"],
+            # 检查是否存在网络搜索文件以应用增强的提示词模板
+            has_web_search = any(
+                file.get("type") == "web_search" 
+                for file in form_data.get("files", [])
+            )
+            
+            # 根据是否为网络搜索选择合适的模板
+            if has_web_search:
+                # 获取系统指令（如果存在）
+                system_instructions = ""
+                current_date = ""
+                # 可以从请求或配置中获取系统指令和当前日期
+                # system_instructions = request.app.state.config.get("SYSTEM_INSTRUCTIONS", "")
+                from datetime import datetime
+                current_date = datetime.utcnow().isoformat() + "Z"
+                
+                enhanced_prompt = create_web_search_prompt(
+                    context=context_string,
+                    query=prompt,
+                    system_instructions=system_instructions,
+                    current_date=current_date
                 )
+                
+                # Workaround for Ollama 2.0+ system prompt issue
+                # TODO: replace with add_or_update_system_message
+                if model.get("owned_by") == "ollama":
+                    form_data["messages"] = prepend_to_first_user_message_content(
+                        enhanced_prompt,
+                        form_data["messages"],
+                    )
+                else:
+                    form_data["messages"] = add_or_update_system_message(
+                        enhanced_prompt,
+                        form_data["messages"],
+                    )
             else:
-                form_data["messages"] = add_or_update_system_message(
-                    rag_template(
-                        request.app.state.config.RAG_TEMPLATE, context_string, prompt
-                    ),
-                    form_data["messages"],
-                )
+                # 使用默认的RAG模板
+                # Workaround for Ollama 2.0+ system prompt issue
+                # TODO: replace with add_or_update_system_message
+                if model.get("owned_by") == "ollama":
+                    form_data["messages"] = prepend_to_first_user_message_content(
+                        rag_template(
+                            request.app.state.config.RAG_TEMPLATE, context_string, prompt
+                        ),
+                        form_data["messages"],
+                    )
+                else:
+                    form_data["messages"] = add_or_update_system_message(
+                        rag_template(
+                            request.app.state.config.RAG_TEMPLATE, context_string, prompt
+                        ),
+                        form_data["messages"],
+                    )
 
     # If there are citations, add them to the data_items
     sources = [
